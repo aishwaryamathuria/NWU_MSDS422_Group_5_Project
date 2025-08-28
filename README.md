@@ -2,5 +2,5 @@
 ## MSDS422 Final Project: Group 5
 
 ### Setup instruction
-- Download the kaggle dataset https://www.kaggle.com/datasets/agungpambudi/network-malware-detection-connection-analysis
+- Download the Stratosphere Laboratory dataset https://www.stratosphereips.org/datasets-iot23
 - Unzip the csv into the data folder
