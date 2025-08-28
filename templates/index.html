@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Identifying Malware in Network Traffic with Supervised Learning</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: Arial, sans-serif; background: #f5f5f5; padding: 20px; }
+        .container { max-width: 800px; margin: 0 auto; background: white; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+        .header { background: #e74c3c; color: white; padding: 20px; text-align: center; border-radius: 8px 8px 0 0; }
+        .content { padding: 20px; }
+        .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; margin-bottom: 20px; }
+        .stat { background: #f8f9fa; padding: 15px; border-radius: 5px; text-align: center; }
+        .stat .value { font-size: 24px; font-weight: bold; color: #2c3e50; }
+        .stat .label { font-size: 12px; color: #666; margin-top: 5px; }
+        .controls { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 10px; margin-bottom: 20px; }
+        .control { display: flex; flex-direction: column; }
+        .control label { font-size: 12px; margin-bottom: 5px; }
+        .control select, .control input { padding: 8px; border: 1px solid #ddd; border-radius: 4px; }
+        .btn { padding: 10px 20px; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; }
+        .btn-danger { background: #e74c3c; color: white; }
+        .btn-success { background: #27ae60; color: white; }
+        .log { background: #2c3e50; color: white; padding: 15px; border-radius: 5px; height: 300px; overflow-y: auto; font-family: monospace; font-size: 12px; }
+        .log-entry { margin-bottom: 5px; }
+        .log-entry.success { color: #2ecc71; }
+        .log-entry.blocked { color: #e74c3c; }
+        .log-entry.info { color: #3498db; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h2>Identifying Malware in Network Traffic with Supervised Learning</h2>
+        </div>
+        
+        <div class="content">
+            <div class="stats">
+                <div class="stat">
+                    <div class="value" id="total-requests">0</div>
+                    <div class="label">Total Requests</div>
+                </div>
+                <div class="stat">
+                    <div class="value" id="successful-requests">0</div>
+                    <div class="label">Successful</div>
+                </div>
+                <div class="stat">
+                    <div class="value" id="blocked-requests">0</div>
+                    <div class="label">Blocked</div>
+                </div>
+                <div class="stat">
+                    <div class="value" id="block-rate">0%</div>
+                    <div class="label">Block Rate</div>
+                </div>
+            </div>
+            
+                                    <div class="controls">
+                            <div class="control">
+                                <label>Attack Type</label>
+                                <select id="attack-type" id="attack-type">
+                                    <option value="">Loading categories...</option>
+                                </select>
+                            </div>
+                            <div class="control">
+                                <label>&nbsp;</label>
+                                <button class="btn btn-danger" onclick="startAttack()" id="attack-btn">Start Attack</button>
+                            </div>
+                            <div class="control">
+                                <label>&nbsp;</label>
+                                <button class="btn btn-success" onclick="testCategoryPatterns()" id="test-btn">Test All Patterns</button>
+                            </div>
+                        </div>
+            
+            <div class="log" id="request-log">
+                <div class="log-entry info">System ready. Click "Start Attack" to begin.</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = 'http://localhost:8080';
+        let isAttackRunning = false;
+        let attackInterval;
+        let requestCount = 0;
+        let successfulCount = 0;
+        let blockedCount = 0;
+        let requestStartTime = Date.now();
+        let requestsPerSecond = 0;
+        
+        function updateStats() {
+            document.getElementById('total-requests').textContent = requestCount;
+            document.getElementById('successful-requests').textContent = successfulCount;
+            document.getElementById('blocked-requests').textContent = blockedCount;
+            const blockRate = requestCount > 0 ? Math.round((blockedCount / requestCount) * 100) : 0;
+            document.getElementById('block-rate').textContent = blockRate + '%';
+        }
+        
+        async function startAttack() {
+            if (isAttackRunning) {
+                stopAttack();
+                return;
+            }
+            
+            const attackType = document.getElementById('attack-type').value;
+            if (!attackType) {
+                alert('Please select an attack type');
+                return;
+            }
+            
+            isAttackRunning = true;
+            document.getElementById('attack-btn').textContent = 'Stop Attack';
+            document.getElementById('attack-btn').className = 'btn btn-success';
+            
+            requestCount = 0;
+            successfulCount = 0;
+            blockedCount = 0;
+            requestStartTime = Date.now();
+            requestsPerSecond = 0;
+            updateStats();
+            
+            addLog(`Starting ${attackType} attack with all validation samples...`, 'info');
+            
+            // Get all samples for this category and send them
+            testAllSamplesForCategory(attackType);
+        }
+        
+        async function sendRequest(attackType) {
+            try {
+                const startTime = Date.now();
+                
+                // Add category header to guide the server
+                const headers = { 
+                    'User-Agent': 'AttackerBot/1.0',
+                    'X-Attack-Category': attackType
+                };
+                
+                const response = await fetch(`${API_BASE}/hello`, {
+                    method: 'GET',
+                    headers: headers
+                });
+                const responseTime = Date.now() - startTime;
+                
+                requestCount++;
+                const currentTime = Date.now();
+                const timeElapsed = (currentTime - requestStartTime) / 1000;
+                requestsPerSecond = timeElapsed > 0 ? (requestCount / timeElapsed).toFixed(1) : 0;
+                
+                const responseText = await response.text();
+                const isBlocked = response.status === 403;
+                
+                if (response.status === 200) {
+                    successfulCount++;
+                } else if (response.status === 403) {
+                    blockedCount++;
+                }
+                
+                // Log the actual result from /hello endpoint
+                if (isBlocked) {
+                    addLog(`Request #${requestCount}: BLOCKED (403) - Malicious detected by /hello endpoint`, 'blocked');
+                } else {
+                    addLog(`Request #${requestCount}: SUCCESS (200) - Benign traffic allowed`, 'success');
+                }
+                
+                updateStats();
+                
+            } catch (error) {
+                requestCount++;
+                addLog(`Request #${requestCount}: FAILED - ${error.message}`, 'info');
+                updateStats();
+            }
+        }
+        
+        function stopAttack() {
+            isAttackRunning = false;
+            if (attackInterval) {
+                clearInterval(attackInterval);
+            }
+            document.getElementById('attack-btn').textContent = 'Start Attack';
+            document.getElementById('attack-btn').className = 'btn btn-danger';
+        }
+        
+        async function testCategoryPatterns() {
+            const attackType = document.getElementById('attack-type').value;
+            if (!attackType) {
+                alert('Please select a category first');
+                return;
+            }
+            
+            const testBtn = document.getElementById('test-btn');
+            testBtn.textContent = 'Testing...';
+            testBtn.disabled = true;
+            
+            try {
+                addLog(`Testing all patterns for category: ${attackType}`, 'info');
+                
+                const response = await fetch(`${API_BASE}/test_category/${encodeURIComponent(attackType)}`);
+                if (response.ok) {
+                    const data = await response.json();
+                    
+                    addLog(`Category: ${data.category}`, 'info');
+                    addLog(`Total samples: ${data.total_samples}`, 'info');
+                    
+                    if (data.accuracy !== undefined) {
+                        addLog(`Correct predictions: ${data.correct_predictions}/${data.total_samples}`, 'info');
+                        addLog(`Accuracy: ${data.accuracy}%`, 'info');
+                    }
+                    
+                    // Log individual results
+                    data.results.forEach(result => {
+                        if (result.error) {
+                            addLog(`Sample ${result.sample_id}: ERROR - ${result.error}`, 'info');
+                        } else {
+                            const status = result.prediction === result.category ? 'CORRECT' : 'WRONG';
+                            const color = result.prediction === result.category ? 'success' : 'blocked';
+                            addLog(`Sample ${result.sample_id}: ${status} - Predicted: ${result.prediction} (${(result.probability * 100).toFixed(1)}%)`, color);
+                        }
+                    });
+                    
+                    addLog(`Category testing completed for: ${attackType}`, 'info');
+                } else {
+                    const errorData = await response.json();
+                    addLog(`Error testing category: ${errorData.error}`, 'blocked');
+                }
+            } catch (error) {
+                addLog(`Error: ${error.message}`, 'blocked');
+            } finally {
+                testBtn.textContent = 'Test All Patterns';
+                testBtn.disabled = false;
+            }
+        }
+        
+        async function testAllSamplesForCategory(attackType) {
+            try {
+                addLog(`Testing all validation samples for category: ${attackType}`, 'info');
+                
+                const response = await fetch(`${API_BASE}/test_category/${encodeURIComponent(attackType)}`);
+                if (response.ok) {
+                    const data = await response.json();
+                    
+                    addLog(`Category: ${data.category}`, 'info');
+                    addLog(`Total samples: ${data.total_samples}`, 'info');
+                    
+                    // Send each sample to /hello endpoint
+                    for (let i = 0; i < data.results.length; i++) {
+                        const result = data.results[i];
+                        if (!result.error) {
+                            await sendRequest(attackType);
+                            // Small delay between requests
+                            await new Promise(resolve => setTimeout(resolve, 100));
+                        }
+                    }
+                    
+                    addLog(`Attack completed. Block rate: ${Math.round((blockedCount/requestCount)*100)}%`, 'info');
+                    stopAttack();
+                } else {
+                    const errorData = await response.json();
+                    addLog(`Error: ${errorData.error}`, 'blocked');
+                    stopAttack();
+                }
+            } catch (error) {
+                addLog(`Error: ${error.message}`, 'blocked');
+                stopAttack();
+            }
+        }
+        
+        function addLog(message, type = 'info') {
+            const logContainer = document.getElementById('request-log');
+            const timestamp = new Date().toLocaleTimeString();
+            const logEntry = document.createElement('div');
+            logEntry.className = `log-entry ${type}`;
+            logEntry.textContent = `[${timestamp}] ${message}`;
+            
+            logContainer.appendChild(logEntry);
+            logContainer.scrollTop = logContainer.scrollHeight;
+            
+            while (logContainer.children.length > 100) {
+                logContainer.removeChild(logContainer.firstChild);
+            }
+        }
+        
+        // Load categories from API
+        async function loadCategories() {
+            try {
+                const response = await fetch(`${API_BASE}/categories`);
+                if (response.ok) {
+                    const data = await response.json();
+                    const select = document.getElementById('attack-type');
+                    select.innerHTML = '';
+                    
+                    data.categories.forEach(category => {
+                        const option = document.createElement('option');
+                        option.value = category;
+                        option.textContent = category;
+                        select.appendChild(option);
+                    });
+                    
+                    console.log('Loaded categories:', data.categories);
+                    console.log('Sample info:', data.sample_info);
+                } else {
+                    console.error('Failed to load categories');
+                }
+            } catch (error) {
+                console.error('Error loading categories:', error);
+            }
+        }
+        
+        document.addEventListener('DOMContentLoaded', function() {
+            updateStats();
+            loadCategories();
+        });
+    </script>
+</body>
+</html>
