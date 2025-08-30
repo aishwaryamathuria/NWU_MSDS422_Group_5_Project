@@ -1,1 +1,6 @@
-data/*.csv
+data/CTU_*.csv
+data/ctu*.csv
+malaware_*.ipynb
+data/df_*.csv
+data/X_train.csv
+*.DS_Store*
